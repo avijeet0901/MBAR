@@ -1,6 +1,6 @@
 # MBAR
 
-This code applies the Multistate Bennett Acceptance Ratio (MBAR) in both temperature and multidimensional collective variable (CV) space. The biased potential used in the simulation is harmonic, as in umbrella sampling, and requires two inputs: the center of the harmonic potential and the spring constant.
+This code applies the Multistate Bennett Acceptance Ratio (MBAR) in both the temperature and multidimensional collective variable (CV) spaces. The biased potential used in the simulation is harmonic, as in umbrella sampling, and requires two inputs: the location of the harmonic potential and the spring constant.
 
 # Package requirement
 ```
@@ -48,7 +48,7 @@ Please cite the following paper if you are using the code or any segment of code
 }
 ```
 # Future updates 
-A fast a better approach to compute the error will be inplemented in the future. 
+A faster approach to computing errors in the unbiased properties will be implemented in the future. 
 
 Best Regards.  
 Avijeet Kulshrestha
