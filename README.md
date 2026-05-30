@@ -11,7 +11,8 @@ pip3 install pymbar
 ```
 # Usage
 The help options can be printed out with the -h option. and the code can be executed by providing all the necessary input:
-python mbar_weights.py -f input_file.dat -target_temp 272.0 -stride 10 -N_CV 2
+
+python mbar_weights.py -f input_file.dat -target_temp 272.0 -stride 10 -N_CV 2 -periodic YES NO -periodicity "[-pi, pi]
 
 The input_file file should have the following format, including all the COLVAR files:
 /location/to/file/COLVAR CV1 CV2 ... K1 K2 ... temperature
@@ -24,7 +25,11 @@ The target_temp argument specifies the temperature at which the weights are comp
 
 The stride argument specifies the interval at which to read data points from the COLVAR files. 
 
-The N_CV argument is used to define the number of biased CV in the simulations. 
+The N_CV argument specifies the number of biased CVs in the simulations. 
+
+-periodic argument asks if a CV is periodic, and should be provided as a string of YES and NO inputs. The default is NO for all the CVs. 
+
+-periodicity is required if any of the arguments of periodic is YES. Here, the periodicity needs to be defined in square brackets for all YES in sequence. 
 
 -------
 The error in the free-energy estimate, or in estimates of other properties, can be evaluated in two ways: (i) by recomputing the weights for each bootstrap sample, or (ii) by performing bootstrap analysis on the sampled data while reusing the weights computed from the complete dataset, thereby reducing the computational cost. 
