@@ -12,7 +12,7 @@ pip3 install pymbar
 # Usage
 The help options can be printed out with the -h option. and the code can be executed by providing all the necessary input:
 
-python mbar_weights.py -f input_file.dat -target_temp 272.0 -stride 10 -N_CV 2 -periodic YES NO -periodicity "[-pi, pi]
+python mbar_weights.py -f input_file.dat -target_temp 272.0 -stride 10 -N_CV 2 -periodic YES NO -periodicity [-pi, pi]
 
 The input_file file should have the following format, including all the COLVAR files:
 /location/to/file/COLVAR CV1 CV2 ... K1 K2 ... temperature
