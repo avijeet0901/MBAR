@@ -3,11 +3,190 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_ENABLE_X64"] = "False"
 
 import argparse
+import re
 import numpy as np
 from pymbar import MBAR
 
 
 kB = 0.0083144621  # kJ/mol/K
+
+
+def parse_numeric_expression(expr):
+    """
+    Parse simple numeric expressions such as:
+    pi, -pi, 2*pi, pi/2, -1.0, 3.14
+
+    This is useful for periodicity ranges such as [-pi,pi].
+    """
+    expr = expr.strip()
+    expr = expr.replace("π", "pi")
+    expr = expr.replace("PI", "pi")
+    expr = expr.replace("Pi", "pi")
+
+    allowed_pattern = r"^[0-9eE\.\+\-\*/\(\)\s pi]+$"
+
+    if not re.match(allowed_pattern, expr):
+        raise ValueError(
+            f"Invalid numeric expression: {expr}\n"
+            "Allowed examples: pi, -pi, 2*pi, pi/2, -1.0, 1.0"
+        )
+
+    return float(eval(expr, {"__builtins__": {}}, {"pi": np.pi}))
+
+
+def combine_periodicity_tokens(tokens):
+    """
+    Allows both forms:
+
+        -periodicity "[-pi,pi]" "[-1,1]"
+
+    and, to some extent, also:
+
+        -periodicity [-pi, pi] [-1,1]
+
+    However, quoted ranges are strongly recommended.
+    """
+    if tokens is None:
+        return []
+
+    ranges = []
+    buffer = []
+
+    for token in tokens:
+        buffer.append(token)
+        text = " ".join(buffer).strip()
+
+        has_comma = "," in text
+        starts_bracket = text.startswith("[")
+        ends_bracket = text.endswith("]")
+
+        if has_comma and ((starts_bracket and ends_bracket) or not starts_bracket):
+            ranges.append(text)
+            buffer = []
+
+    if buffer:
+        raise ValueError(
+            "Could not parse -periodicity argument. Use quoted ranges, for example:\n"
+            '-periodicity "[-pi,pi]" "[-1,1]"'
+        )
+
+    return ranges
+
+
+def parse_periodicity_range(range_string):
+    """
+    Parse one periodicity range.
+
+    Accepted forms:
+        [-pi,pi]
+        [-pi, pi]
+        -pi,pi
+        [-1,1]
+        [0,2*pi]
+    """
+    s = range_string.strip()
+
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1]
+
+    parts = s.split(",")
+
+    if len(parts) != 2:
+        raise ValueError(
+            f"Could not parse periodicity range: {range_string}\n"
+            "Use format like [-pi,pi] or [-1,1]."
+        )
+
+    lower = parse_numeric_expression(parts[0])
+    upper = parse_numeric_expression(parts[1])
+
+    if upper <= lower:
+        raise ValueError(
+            f"Invalid periodicity range {range_string}: upper bound must be larger than lower bound."
+        )
+
+    return lower, upper
+
+
+def parse_yes_no(value):
+    value = value.strip().upper()
+
+    if value in ["YES", "Y", "TRUE", "T", "1"]:
+        return True
+
+    if value in ["NO", "N", "FALSE", "F", "0"]:
+        return False
+
+    raise ValueError(
+        f"Invalid periodic flag: {value}\n"
+        "Use YES or NO."
+    )
+
+
+def parse_periodic_settings(D, periodic_tokens, periodicity_tokens):
+    """
+    Returns:
+        periodic       : boolean array of shape (D,)
+        lower_bounds   : float array of shape (D,)
+        upper_bounds   : float array of shape (D,)
+        period_lengths : float array of shape (D,)
+
+    Default:
+        all CVs are non-periodic.
+    """
+    if periodic_tokens is None:
+        periodic = np.array([False] * D)
+    else:
+        if len(periodic_tokens) != D:
+            raise ValueError(
+                f"-periodic must contain exactly {D} entries, one for each CV.\n"
+                f"Example for D=3: -periodic YES YES NO"
+            )
+
+        periodic = np.array([parse_yes_no(x) for x in periodic_tokens], dtype=bool)
+
+    n_periodic = int(np.sum(periodic))
+
+    lower_bounds = np.zeros(D, dtype=np.float64)
+    upper_bounds = np.zeros(D, dtype=np.float64)
+    period_lengths = np.ones(D, dtype=np.float64)
+
+    if n_periodic == 0:
+        if periodicity_tokens is not None and len(periodicity_tokens) > 0:
+            raise ValueError(
+                "-periodicity was provided, but no CV was marked periodic using -periodic YES."
+            )
+
+        return periodic, lower_bounds, upper_bounds, period_lengths
+
+    if periodicity_tokens is None:
+        raise ValueError(
+            f"{n_periodic} CV(s) were marked periodic, but -periodicity was not provided.\n"
+            'Example: -periodicity "[-pi,pi]" "[-pi,pi]"'
+        )
+
+    periodicity_ranges = combine_periodicity_tokens(periodicity_tokens)
+
+    if len(periodicity_ranges) != n_periodic:
+        raise ValueError(
+            f"Expected {n_periodic} periodicity range(s), but got {len(periodicity_ranges)}.\n"
+            "Provide one range for each YES in -periodic.\n"
+            'Example: -periodic YES NO YES -periodicity "[-pi,pi]" "[-1,1]"'
+        )
+
+    range_counter = 0
+
+    for d in range(D):
+        if periodic[d]:
+            lower, upper = parse_periodicity_range(periodicity_ranges[range_counter])
+
+            lower_bounds[d] = lower
+            upper_bounds[d] = upper
+            period_lengths[d] = upper - lower
+
+            range_counter += 1
+
+    return periodic, lower_bounds, upper_bounds, period_lengths
 
 
 def parse_arguments():
@@ -47,6 +226,30 @@ def parse_arguments():
         help="Number of biased collective variables.",
     )
 
+    parser.add_argument(
+        "-periodic",
+        "--periodic",
+        nargs="*",
+        default=None,
+        help=(
+            "Specify whether each CV is periodic. "
+            "Use one YES/NO entry per CV. "
+            "Default: all NO. "
+            "Example: -periodic YES YES NO"
+        ),
+    )
+
+    parser.add_argument(
+        "-periodicity",
+        "--periodicity",
+        nargs="*",
+        default=None,
+        help=(
+            "Periodicity range for each periodic CV, in the same order as YES appears in -periodic. "
+            'Examples: -periodicity "[-pi,pi]" "[-1,1]"'
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -66,6 +269,7 @@ def read_metadata(input_file, D):
             tokens = line.split()
 
             expected_min_columns = 1 + 2 * D + 1
+
             if len(tokens) < expected_min_columns:
                 raise ValueError(
                     f"Line {line_number} in {input_file} has too few columns.\n"
@@ -99,6 +303,7 @@ def load_window_data(path, D, stride):
     data = np.atleast_2d(data)
 
     required_columns = 1 + D + 1
+
     if data.shape[1] < required_columns:
         raise ValueError(
             f"File {path} has too few columns.\n"
@@ -129,11 +334,28 @@ def main():
     if stride <= 0:
         raise ValueError("-stride must be a positive integer.")
 
+    periodic, lower_bounds, upper_bounds, period_lengths = parse_periodic_settings(
+        D,
+        args.periodic,
+        args.periodicity,
+    )
+
     print("\n========== MBAR WEIGHT CALCULATION ==========")
     print(f"Input file       : {input_file}")
     print(f"Target temp      : {target_temp:.6f} K")
     print(f"Stride           : {stride}")
     print(f"Number of CVs    : {D}")
+
+    print("\nCV periodicity:")
+    for d in range(D):
+        if periodic[d]:
+            print(
+                f"CV{d + 1}: YES, range = "
+                f"[{lower_bounds[d]:.8f}, {upper_bounds[d]:.8f}], "
+                f"period = {period_lengths[d]:.8f}"
+            )
+        else:
+            print(f"CV{d + 1}: NO")
 
     # ---------- STEP 1: READ INPUT FILE ----------
     paths, centers, ksprings, temps = read_metadata(input_file, D)
@@ -179,9 +401,6 @@ def main():
 
     u_kn = np.zeros((K, N), dtype=np.float32)
 
-    L = 2.0 * np.pi
-    periodic = np.array([True] * D)
-
     for k in range(K):
         beta_k = 1.0 / (kB * temps[k])
 
@@ -189,6 +408,7 @@ def main():
 
         for d in range(D):
             if periodic[d]:
+                L = period_lengths[d]
                 diff[:, d] -= L * np.round(diff[:, d] / L)
 
         bias = 0.5 * np.sum(ksprings[k] * diff**2, axis=1)
